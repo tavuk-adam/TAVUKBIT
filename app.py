@@ -14,11 +14,15 @@ log_kaydi = []
 simulasyon_aktif = False
 kalan_sure = 0
 
-# ATL COIN verileri
+# ATL COIN verileri (aynı eski gibi)
 fiyat_atl = 9
 log_kaydi_atl = []
 simulasyon_aktif_atl = False
 kalan_sure_atl = 0
+
+# Meilleştirme seviyesi 0-5 (0=kapalı)
+dusme_meille_seviye = 0
+yukselme_meille_seviye = 0
 
 HTML = '''
 <!doctype html>
@@ -62,6 +66,19 @@ HTML = '''
       <div>Fiyat: <span class="fiyat" id="fiyat">{{ fiyat }}</span> elmas</div>
       <div>Durum: <span id="durum">{{ durum }}</span></div>
       <div>Kalan Süre: <span id="kalan_sure">{{ kalan_sure }}</span> saniye</div>
+
+      <div class="mb-3">
+        <button id="dusme_arti" class="btn btn-danger">⬇️ Düşmeye Meilleştir (+)</button>
+        <button id="dusme_eksi" class="btn btn-secondary">⬇️ Düşmeye Meilleştir (-)</button>
+        <span>Düşme Seviyesi: <span id="dusme_seviye">{{ dusme_meille_seviye }}</span> / 5</span>
+      </div>
+
+      <div class="mb-3">
+        <button id="yukselme_arti" class="btn btn-success">⬆️ Yükselmeye Meilleştir (+)</button>
+        <button id="yukselme_eksi" class="btn btn-secondary">⬆️ Yükselmeye Meilleştir (-)</button>
+        <span>Yükselme Seviyesi: <span id="yukselme_seviye">{{ yukselme_meille_seviye }}</span> / 5</span>
+      </div>
+
       <button id="devamBtn" class="btn btn-success my-1">▶ Devam</button>
       <button id="durdurBtn" class="btn btn-danger my-1">⏹ Durdur</button>
       <button id="temizleBtn" class="btn btn-secondary my-1">🧹 Temizle</button>
@@ -95,6 +112,9 @@ HTML = '''
       if(document.getElementById("log")) document.getElementById("log").textContent = data.log;
       if(document.getElementById("kalan_sure")) document.getElementById("kalan_sure").textContent = data.kalan_sure;
 
+      if(document.getElementById("dusme_seviye")) document.getElementById("dusme_seviye").textContent = data.dusme_meille_seviye;
+      if(document.getElementById("yukselme_seviye")) document.getElementById("yukselme_seviye").textContent = data.yukselme_meille_seviye;
+
       if(document.getElementById("fiyat_atl")) document.getElementById("fiyat_atl").textContent = data.fiyat_atl;
       if(document.getElementById("durum_atl")) document.getElementById("durum_atl").textContent = data.durum_atl;
       if(document.getElementById("log_atl")) document.getElementById("log_atl").textContent = data.log_atl;
@@ -105,6 +125,7 @@ HTML = '''
   setInterval(update, 1000);
   update();
 
+  // TAVUKBIT CONTROLS
   if (document.getElementById("devamBtn")) {
     document.getElementById("devamBtn").onclick = () => {
       const sure = parseInt(document.getElementById("sure_input")?.value) || 20;
@@ -116,62 +137,94 @@ HTML = '''
       });
     };
   }
-
   if (document.getElementById("durdurBtn")) {
     document.getElementById("durdurBtn").onclick = () => fetch('/durdur', { method: 'POST' });
   }
-
   if (document.getElementById("temizleBtn")) {
     document.getElementById("temizleBtn").onclick = () => fetch('/temizle', { method: 'POST' });
   }
 
-  if (document.getElementById("devamBtn_atl")) {
-    document.getElementById("devamBtn_atl").onclick = () => {
-      const sure = parseInt(document.getElementById("sure_input_atl")?.value) || 20;
-      const baslangic = parseInt(document.getElementById("baslangic_input_atl")?.value);
-      fetch('/devam_atl', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ sure: sure, baslangic: baslangic })
-      });
+  // Meilleştirme artır/azalt butonları
+  if(document.getElementById("dusme_arti")) {
+    document.getElementById("dusme_arti").onclick = () => {
+      fetch('/meille_dusme_artir', { method: 'POST' });
     };
   }
-
-  if (document.getElementById("durdurBtn_atl")) {
-    document.getElementById("durdurBtn_atl").onclick = () => fetch('/durdur_atl', { method: 'POST' });
+  if(document.getElementById("dusme_eksi")) {
+    document.getElementById("dusme_eksi").onclick = () => {
+      fetch('/meille_dusme_azalt', { method: 'POST' });
+    };
   }
-
-  if (document.getElementById("temizleBtn_atl")) {
-    document.getElementById("temizleBtn_atl").onclick = () => fetch('/temizle_atl', { method: 'POST' });
+  if(document.getElementById("yukselme_arti")) {
+    document.getElementById("yukselme_arti").onclick = () => {
+      fetch('/meille_yukselme_artir', { method: 'POST' });
+    };
   }
-
+  if(document.getElementById("yukselme_eksi")) {
+    document.getElementById("yukselme_eksi").onclick = () => {
+      fetch('/meille_yukselme_azalt', { method: 'POST' });
+    };
+  }
 </script>
 </body>
 </html>
 '''
 
+
 def simulasyonu_baslat(sure, baslangic=None):
     global fiyat, log_kaydi, simulasyon_aktif, kalan_sure
+    global dusme_meille_seviye, yukselme_meille_seviye
     with lock:
         if baslangic and isinstance(baslangic, int) and baslangic > 0:
             fiyat = baslangic
         simulasyon_aktif = True
         kalan_sure = sure
+
     for saniye in range(1, sure + 1):
         time.sleep(1)
         with lock:
             if not simulasyon_aktif:
                 log_kaydi.append("⏹ Simülasyon erken durduruldu.")
                 break
-            degisim = random.randint(-2, 2)
-            fiyat = max(1, fiyat + degisim)
-            log_kaydi.append(f"{saniye}. saniyede fiyat: {fiyat} elmas")
+
+            # Meilleştirme etkisi
+            # Normalde -2, -1, 0, 1, 2 eşit olasılıkta
+            # Meilleştirme ile olasılıkları değiştireceğiz:
+            # Olabilir -2 ve 2'nin ağırlıklarını arttıracağız seviyeye göre
+
+            olasiliklar = [-2, -1, 0, 1, 2]
+
+            # Her olasılık için ağırlık başlangıçta eşit (1)
+            agirliklar = [1, 1, 1, 1, 1]
+
+            # Düşmeye meilleştirme: -2, -1 ağırlıkları artar
+            if dusme_meille_seviye > 0:
+                agirliklar[0] += dusme_meille_seviye  # -2
+                agirliklar[1] += dusme_meille_seviye  # -1
+
+            # Yükselmeye meilleştirme: 1, 2 ağırlıkları artar
+            if yukselme_meille_seviye > 0:
+                agirliklar[3] += yukselme_meille_seviye  # 1
+                agirliklar[4] += yukselme_meille_seviye  # 2
+
+            # Normalleştirilmiş weighted seçim
+            toplam_agirlik = sum(agirliklar)
+            secim = random.choices(olasiliklar, weights=agirliklar, k=1)[0]
+
+            fiyat = max(1, fiyat + secim)
+
+            log_kaydi.append(
+                f"{saniye}. saniye - fiyat: {fiyat} elmas (Düşme Meille: {dusme_meille_seviye}, Yükselme Meille: {yukselme_meille_seviye})")
+
             kalan_sure -= 1
+
     with lock:
         simulasyon_aktif = False
         kalan_sure = 0
         log_kaydi.append("⏹ Simülasyon durdu.")
 
+
+# ATL simülasyonu değişmedi (isteğe göre eklenebilir)
 def simulasyonu_baslat_atl(sure, baslangic=None):
     global fiyat_atl, log_kaydi_atl, simulasyon_aktif_atl, kalan_sure_atl
     with lock:
@@ -194,6 +247,7 @@ def simulasyonu_baslat_atl(sure, baslangic=None):
         kalan_sure_atl = 0
         log_kaydi_atl.append("⏹ ATL simülasyon durdu.")
 
+
 def atl_otomatik_guncelle():
     global fiyat_atl, log_kaydi_atl
     while True:
@@ -205,12 +259,18 @@ def atl_otomatik_guncelle():
             if len(log_kaydi_atl) > 100:
                 log_kaydi_atl.pop(0)
 
+
 @app.route("/")
 def index():
     return render_template_string(HTML,
-        fiyat=fiyat, log="\n".join(log_kaydi), durum="🟢" if simulasyon_aktif else "🔴", kalan_sure=kalan_sure,
-        fiyat_atl=fiyat_atl, log_atl="\n".join(log_kaydi_atl), durum_atl="🟢" if simulasyon_aktif_atl else "🔴", kalan_sure_atl=kalan_sure_atl,
-        session=session)
+                                  fiyat=fiyat, log="\n".join(log_kaydi), durum="🟢" if simulasyon_aktif else "🔴",
+                                  kalan_sure=kalan_sure,
+                                  fiyat_atl=fiyat_atl, log_atl="\n".join(log_kaydi_atl),
+                                  durum_atl="🟢" if simulasyon_aktif_atl else "🔴", kalan_sure_atl=kalan_sure_atl,
+                                  dusme_meille_seviye=dusme_meille_seviye,
+                                  yukselme_meille_seviye=yukselme_meille_seviye,
+                                  session=session)
+
 
 @app.route("/status")
 def status():
@@ -226,7 +286,11 @@ def status():
         "durum_atl": "🟢" if simulasyon_aktif_atl else "🔴",
         "kalan_sure_atl": kalan_sure_atl,
         "simulasyon_aktif_atl": simulasyon_aktif_atl,
+
+        "dusme_meille_seviye": dusme_meille_seviye,
+        "yukselme_meille_seviye": yukselme_meille_seviye,
     })
+
 
 @app.route("/devam", methods=["POST"])
 def devam():
@@ -248,6 +312,7 @@ def devam():
     threading.Thread(target=simulasyonu_baslat, args=(sure, baslangic)).start()
     return ('', 204)
 
+
 @app.route("/durdur", methods=["POST"])
 def durdur():
     if not session.get("giris_tavuk"):
@@ -256,6 +321,7 @@ def durdur():
     with lock:
         simulasyon_aktif = False
     return ('', 204)
+
 
 @app.route("/temizle", methods=["POST"])
 def temizle():
@@ -267,6 +333,59 @@ def temizle():
         log_kaydi.append("🧹 Log temizlendi.")
     return ('', 204)
 
+
+# Meilleştirme artır / azalt rotaları
+@app.route("/meille_dusme_artir", methods=["POST"])
+def meille_dusme_artir():
+    global dusme_meille_seviye, yukselme_meille_seviye
+    if not session.get("giris_tavuk"):
+        return "Yetkisiz", 403
+    with lock:
+        if dusme_meille_seviye < 5:
+            dusme_meille_seviye += 1
+        # Yükselmeye meilleştirme kapalı olur (ters etki olmasın)
+        if yukselme_meille_seviye != 0:
+            yukselme_meille_seviye = 0
+    return ('', 204)
+
+
+@app.route("/meille_dusme_azalt", methods=["POST"])
+def meille_dusme_azalt():
+    global dusme_meille_seviye
+    if not session.get("giris_tavuk"):
+        return "Yetkisiz", 403
+    with lock:
+        if dusme_meille_seviye > 0:
+            dusme_meille_seviye -= 1
+    return ('', 204)
+
+
+@app.route("/meille_yukselme_artir", methods=["POST"])
+def meille_yukselme_artir():
+    global yukselme_meille_seviye, dusme_meille_seviye
+    if not session.get("giris_tavuk"):
+        return "Yetkisiz", 403
+    with lock:
+        if yukselme_meille_seviye < 5:
+            yukselme_meille_seviye += 1
+        # Düşmeye meilleştirme kapalı olur (ters etki olmasın)
+        if dusme_meille_seviye != 0:
+            dusme_meille_seviye = 0
+    return ('', 204)
+
+
+@app.route("/meille_yukselme_azalt", methods=["POST"])
+def meille_yukselme_azalt():
+    global yukselme_meille_seviye
+    if not session.get("giris_tavuk"):
+        return "Yetkisiz", 403
+    with lock:
+        if yukselme_meille_seviye > 0:
+            yukselme_meille_seviye -= 1
+    return ('', 204)
+
+
+# ATL eski kod aynen burada...
 @app.route("/devam_atl", methods=["POST"])
 def devam_atl():
     if not session.get("giris_atl"):
@@ -287,6 +406,7 @@ def devam_atl():
     threading.Thread(target=simulasyonu_baslat_atl, args=(sure, baslangic)).start()
     return ('', 204)
 
+
 @app.route("/durdur_atl", methods=["POST"])
 def durdur_atl():
     if not session.get("giris_atl"):
@@ -295,6 +415,7 @@ def durdur_atl():
     with lock:
         simulasyon_aktif_atl = False
     return ('', 204)
+
 
 @app.route("/temizle_atl", methods=["POST"])
 def temizle_atl():
@@ -305,6 +426,7 @@ def temizle_atl():
         log_kaydi_atl.clear()
         log_kaydi_atl.append("🧹 ATL Log temizlendi.")
     return ('', 204)
+
 
 @app.route("/login", methods=["POST"])
 def login():
@@ -319,6 +441,7 @@ def login():
         log_kaydi.append("🚫 Hatalı şifre denemesi!")
         log_kaydi_atl.append("🚫 Hatalı şifre denemesi!")
     return redirect(url_for("index"))
+
 
 @app.route("/logout")
 def logout():
@@ -339,6 +462,7 @@ def atl_otomatik_guncelle():
             log_kaydi_atl.append(f"⏰ Otomatik ATL güncellemesi: Yeni fiyat {fiyat_atl} elmas")
             if len(log_kaydi_atl) > 100:
                 log_kaydi_atl.pop(0)
+
 
 if __name__ == "__main__":
     threading.Thread(target=atl_otomatik_guncelle, daemon=True).start()
