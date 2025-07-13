@@ -15,7 +15,7 @@ simulasyon_aktif = False
 kalan_sure = 0
 
 # ATL COIN verileri
-fiyat_atl = 30
+fiyat_atl = 9
 log_kaydi_atl = []
 simulasyon_aktif_atl = False
 kalan_sure_atl = 0
@@ -194,6 +194,17 @@ def simulasyonu_baslat_atl(sure, baslangic=None):
         kalan_sure_atl = 0
         log_kaydi_atl.append("⏹ ATL simülasyon durdu.")
 
+def atl_otomatik_guncelle():
+    global fiyat_atl, log_kaydi_atl
+    while True:
+        time.sleep(3600)  # 1 saat
+        with lock:
+            degisim = random.randint(-5, 5)
+            fiyat_atl = max(1, fiyat_atl + degisim)
+            log_kaydi_atl.append(f"⏰ Otomatik ATL güncellemesi: Yeni fiyat {fiyat_atl} elmas")
+            if len(log_kaydi_atl) > 100:
+                log_kaydi_atl.pop(0)
+
 @app.route("/")
 def index():
     return render_template_string(HTML,
@@ -221,11 +232,19 @@ def status():
 def devam():
     if not session.get("giris_tavuk"):
         return "Yetkisiz", 403
-    data = request.get_json()
+    data = request.get_json(force=True)
     sure = data.get("sure", 20)
     baslangic = data.get("baslangic")
-    if not isinstance(sure, int) or sure < 5 or sure > 120:
+    try:
+        sure = int(sure)
+    except:
         sure = 20
+    if sure < 5 or sure > 120:
+        sure = 20
+    try:
+        baslangic = int(baslangic)
+    except:
+        baslangic = None
     threading.Thread(target=simulasyonu_baslat, args=(sure, baslangic)).start()
     return ('', 204)
 
@@ -252,11 +271,19 @@ def temizle():
 def devam_atl():
     if not session.get("giris_atl"):
         return "Yetkisiz", 403
-    data = request.get_json()
+    data = request.get_json(force=True)
     sure = data.get("sure", 20)
     baslangic = data.get("baslangic")
-    if not isinstance(sure, int) or sure < 5 or sure > 120:
+    try:
+        sure = int(sure)
+    except:
         sure = 20
+    if sure < 5 or sure > 120:
+        sure = 20
+    try:
+        baslangic = int(baslangic)
+    except:
+        baslangic = None
     threading.Thread(target=simulasyonu_baslat_atl, args=(sure, baslangic)).start()
     return ('', 204)
 
@@ -284,21 +311,35 @@ def login():
     sifre = request.form.get("password")
     if sifre == "tavuk123":
         session["giris_tavuk"] = True
-        log_kaydi.append("✅ TAVUKBIT girişi yapıldı.")
+        log_kaydi.append("✅ TAVUKBIT giriş yapıldı.")
     elif sifre == "ATL123":
         session["giris_atl"] = True
-        log_kaydi_atl.append("✅ ATL COIN girişi yapıldı.")
+        log_kaydi_atl.append("✅ ATL COIN giriş yapıldı.")
     else:
-        log_kaydi.append("🚫 Hatalı şifre denemesi.")
+        log_kaydi.append("🚫 Hatalı şifre denemesi!")
+        log_kaydi_atl.append("🚫 Hatalı şifre denemesi!")
     return redirect(url_for("index"))
 
 @app.route("/logout")
 def logout():
     session.pop("giris_tavuk", None)
     session.pop("giris_atl", None)
-    log_kaydi.append("👋 TAVUKBIT çıkış yapıldı.")
-    log_kaydi_atl.append("👋 ATL COIN çıkış yapıldı.")
+    log_kaydi.append("👋 Çıkış yapıldı.")
+    log_kaydi_atl.append("👋 Çıkış yapıldı.")
     return redirect(url_for("index"))
 
+
+def atl_otomatik_guncelle():
+    global fiyat_atl, log_kaydi_atl
+    while True:
+        time.sleep(3600)  # 1 saat
+        with lock:
+            degisim = random.randint(-5, 5)
+            fiyat_atl = max(1, fiyat_atl + degisim)
+            log_kaydi_atl.append(f"⏰ Otomatik ATL güncellemesi: Yeni fiyat {fiyat_atl} elmas")
+            if len(log_kaydi_atl) > 100:
+                log_kaydi_atl.pop(0)
+
 if __name__ == "__main__":
+    threading.Thread(target=atl_otomatik_guncelle, daemon=True).start()
     app.run(host="0.0.0.0", port=5000)
