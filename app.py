@@ -9,16 +9,10 @@ app.secret_key = "gizli_tavuk"
 lock = threading.Lock()
 
 # TAVUKBIT verileri
-fiyat = 14
+fiyat = NaN
 log_kaydi = []
 simulasyon_aktif = False
 kalan_sure = 0
-
-# ATL COIN verileri (aynı eski gibi)
-fiyat_atl = 9
-log_kaydi_atl = []
-simulasyon_aktif_atl = False
-kalan_sure_atl = 0
 
 # Meilleştirme seviyesi 0-5 (0=kapalı)
 dusme_meille_seviye = 0
@@ -29,7 +23,7 @@ HTML = '''
 <html lang="tr">
 <head>
   <meta charset="utf-8">
-  <title>💰 Coin Simülasyonu</title>
+  <title>💰 TAVUKKRALL BITCOINLERİ</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
     body { background:#121212; color:#eee; }
@@ -38,14 +32,11 @@ HTML = '''
   </style>
 </head>
 <body class="container py-4">
-  <h1>💰 Coin Simülasyonu</h1>
+  <h1>💰 TAVUKKRALL BITCOINLERİ</h1>
 
-  {% if not session.get("giris_tavuk") and not session.get("giris_atl") %}
+  {% if not session.get("giris_tavuk") %}
     <h2>🐔 TAVUKBIT</h2>
     <div>Fiyat: <span class="fiyat">{{ fiyat }}</span> elmas</div>
-
-    <h2>🐴 ATL COIN</h2>
-    <div>Fiyat: <span class="fiyat">{{ fiyat_atl }}</span> elmas</div>
 
     <form method="post" action="/login" class="mt-4">
       <label>🔑 Şifre: <input type="password" name="password" class="form-control" required></label><br>
@@ -55,52 +46,33 @@ HTML = '''
 
     <a href="/logout" class="btn btn-warning mb-4">🚪 Çıkış Yap</a>
 
-    {% if session.get("giris_tavuk") %}
-      <h2>🐔 TAVUKBIT</h2>
-      <label>⏳ Süre (sn): 
-        <input type="number" id="sure_input" class="form-control mb-2" value="20" min="5" max="120">
-      </label>
-      <label>💰 Başlangıç Fiyatı (opsiyonel): 
-        <input type="number" id="baslangic_input" class="form-control mb-2" placeholder="Boş bırakılırsa eski fiyatla devam" min="1">
-      </label>
-      <div>Fiyat: <span class="fiyat" id="fiyat">{{ fiyat }}</span> elmas</div>
-      <div>Durum: <span id="durum">{{ durum }}</span></div>
-      <div>Kalan Süre: <span id="kalan_sure">{{ kalan_sure }}</span> saniye</div>
+    <h2>🐔 TAVUKBIT</h2>
+    <label>⏳ Süre (sn): 
+      <input type="number" id="sure_input" class="form-control mb-2" value="20" min="5" max="120">
+    </label>
+    <label>💰 Başlangıç Fiyatı (opsiyonel): 
+      <input type="number" id="baslangic_input" class="form-control mb-2" placeholder="Boş bırakılırsa eski fiyatla devam" min="1">
+    </label>
+    <div>Fiyat: <span class="fiyat" id="fiyat">{{ fiyat }}</span> elmas</div>
+    <div>Durum: <span id="durum">{{ durum }}</span></div>
+    <div>Kalan Süre: <span id="kalan_sure">{{ kalan_sure }}</span> saniye</div>
 
-      <div class="mb-3">
-        <button id="dusme_arti" class="btn btn-danger">⬇️ Düşmeye Meilleştir (+)</button>
-        <button id="dusme_eksi" class="btn btn-secondary">⬇️ Düşmeye Meilleştir (-)</button>
-        <span>Düşme Seviyesi: <span id="dusme_seviye">{{ dusme_meille_seviye }}</span> / 5</span>
-      </div>
+    <div class="mb-3">
+      <button id="dusme_arti" class="btn btn-danger">⬇️ Düşmeye Meilleştir (+)</button>
+      <button id="dusme_eksi" class="btn btn-secondary">⬇️ Düşmeye Meilleştir (-)</button>
+      <span>Düşme Seviyesi: <span id="dusme_seviye">{{ dusme_meille_seviye }}</span> / 5</span>
+    </div>
 
-      <div class="mb-3">
-        <button id="yukselme_arti" class="btn btn-success">⬆️ Yükselmeye Meilleştir (+)</button>
-        <button id="yukselme_eksi" class="btn btn-secondary">⬆️ Yükselmeye Meilleştir (-)</button>
-        <span>Yükselme Seviyesi: <span id="yukselme_seviye">{{ yukselme_meille_seviye }}</span> / 5</span>
-      </div>
+    <div class="mb-3">
+      <button id="yukselme_arti" class="btn btn-success">⬆️ Yükselmeye Meilleştir (+)</button>
+      <button id="yukselme_eksi" class="btn btn-secondary">⬆️ Yükselmeye Meilleştir (-)</button>
+      <span>Yükselme Seviyesi: <span id="yukselme_seviye">{{ yukselme_meille_seviye }}</span> / 5</span>
+    </div>
 
-      <button id="devamBtn" class="btn btn-success my-1">▶ Devam</button>
-      <button id="durdurBtn" class="btn btn-danger my-1">⏹ Durdur</button>
-      <button id="temizleBtn" class="btn btn-secondary my-1">🧹 Temizle</button>
-      <pre id="log">{{ log }}</pre>
-    {% endif %}
-
-    {% if session.get("giris_atl") %}
-      <h2>🐴 ATL COIN</h2>
-      <label>⏳ Süre (sn): 
-        <input type="number" id="sure_input_atl" class="form-control mb-2" value="20" min="5" max="120">
-      </label>
-      <label>💰 Başlangıç Fiyatı (opsiyonel): 
-        <input type="number" id="baslangic_input_atl" class="form-control mb-2" placeholder="Boş bırakılırsa eski fiyatla devam" min="1">
-      </label>
-      <div>Fiyat: <span class="fiyat" id="fiyat_atl">{{ fiyat_atl }}</span> elmas</div>
-      <div>Durum: <span id="durum_atl">{{ durum_atl }}</span></div>
-      <div>Kalan Süre: <span id="kalan_sure_atl">{{ kalan_sure_atl }}</span> saniye</div>
-      <button id="devamBtn_atl" class="btn btn-success my-1">▶ Devam</button>
-      <button id="durdurBtn_atl" class="btn btn-danger my-1">⏹ Durdur</button>
-      <button id="temizleBtn_atl" class="btn btn-secondary my-1">🧹 Temizle</button>
-      <pre id="log_atl">{{ log_atl }}</pre>
-    {% endif %}
+    <button id="devamBtn" class="btn btn-success my-1">▶ Devam</button>
+    <button id="durdurBtn" class="btn btn-danger my-1">⏹ Durdur</button>
+    <button id="temizleBtn" class="btn btn-secondary my-1">🧹 Temizle</button>
+    <pre id="log">{{ log }}</pre>
 
   {% endif %}
 
@@ -114,11 +86,6 @@ HTML = '''
 
       if(document.getElementById("dusme_seviye")) document.getElementById("dusme_seviye").textContent = data.dusme_meille_seviye;
       if(document.getElementById("yukselme_seviye")) document.getElementById("yukselme_seviye").textContent = data.yukselme_meille_seviye;
-
-      if(document.getElementById("fiyat_atl")) document.getElementById("fiyat_atl").textContent = data.fiyat_atl;
-      if(document.getElementById("durum_atl")) document.getElementById("durum_atl").textContent = data.durum_atl;
-      if(document.getElementById("log_atl")) document.getElementById("log_atl").textContent = data.log_atl;
-      if(document.getElementById("kalan_sure_atl")) document.getElementById("kalan_sure_atl").textContent = data.kalan_sure_atl;
     });
   }
 
@@ -224,49 +191,11 @@ def simulasyonu_baslat(sure, baslangic=None):
         log_kaydi.append("⏹ Simülasyon durdu.")
 
 
-# ATL simülasyonu değişmedi (isteğe göre eklenebilir)
-def simulasyonu_baslat_atl(sure, baslangic=None):
-    global fiyat_atl, log_kaydi_atl, simulasyon_aktif_atl, kalan_sure_atl
-    with lock:
-        if baslangic and isinstance(baslangic, int) and baslangic > 0:
-            fiyat_atl = baslangic
-        simulasyon_aktif_atl = True
-        kalan_sure_atl = sure
-    for saniye in range(1, sure + 1):
-        time.sleep(1)
-        with lock:
-            if not simulasyon_aktif_atl:
-                log_kaydi_atl.append("⏹ ATL simülasyon erken durduruldu.")
-                break
-            degisim = random.randint(-2, 2)
-            fiyat_atl = max(1, fiyat_atl + degisim)
-            log_kaydi_atl.append(f"{saniye}. saniyede ATL fiyatı: {fiyat_atl} elmas")
-            kalan_sure_atl -= 1
-    with lock:
-        simulasyon_aktif_atl = False
-        kalan_sure_atl = 0
-        log_kaydi_atl.append("⏹ ATL simülasyon durdu.")
-
-
-def atl_otomatik_guncelle():
-    global fiyat_atl, log_kaydi_atl
-    while True:
-        time.sleep(3600)  # 1 saat
-        with lock:
-            degisim = random.randint(-5, 5)
-            fiyat_atl = max(1, fiyat_atl + degisim)
-            log_kaydi_atl.append(f"⏰ Otomatik ATL güncellemesi: Yeni fiyat {fiyat_atl} elmas")
-            if len(log_kaydi_atl) > 100:
-                log_kaydi_atl.pop(0)
-
-
 @app.route("/")
 def index():
     return render_template_string(HTML,
                                   fiyat=fiyat, log="\n".join(log_kaydi), durum="🟢" if simulasyon_aktif else "🔴",
                                   kalan_sure=kalan_sure,
-                                  fiyat_atl=fiyat_atl, log_atl="\n".join(log_kaydi_atl),
-                                  durum_atl="🟢" if simulasyon_aktif_atl else "🔴", kalan_sure_atl=kalan_sure_atl,
                                   dusme_meille_seviye=dusme_meille_seviye,
                                   yukselme_meille_seviye=yukselme_meille_seviye,
                                   session=session)
@@ -280,13 +209,6 @@ def status():
         "durum": "🟢" if simulasyon_aktif else "🔴",
         "kalan_sure": kalan_sure,
         "simulasyon_aktif": simulasyon_aktif,
-
-        "fiyat_atl": fiyat_atl,
-        "log_atl": "\n".join(log_kaydi_atl[-50:]),
-        "durum_atl": "🟢" if simulasyon_aktif_atl else "🔴",
-        "kalan_sure_atl": kalan_sure_atl,
-        "simulasyon_aktif_atl": simulasyon_aktif_atl,
-
         "dusme_meille_seviye": dusme_meille_seviye,
         "yukselme_meille_seviye": yukselme_meille_seviye,
     })
@@ -385,85 +307,23 @@ def meille_yukselme_azalt():
     return ('', 204)
 
 
-# ATL eski kod aynen burada...
-@app.route("/devam_atl", methods=["POST"])
-def devam_atl():
-    if not session.get("giris_atl"):
-        return "Yetkisiz", 403
-    data = request.get_json(force=True)
-    sure = data.get("sure", 20)
-    baslangic = data.get("baslangic")
-    try:
-        sure = int(sure)
-    except:
-        sure = 20
-    if sure < 5 or sure > 120:
-        sure = 20
-    try:
-        baslangic = int(baslangic)
-    except:
-        baslangic = None
-    threading.Thread(target=simulasyonu_baslat_atl, args=(sure, baslangic)).start()
-    return ('', 204)
-
-
-@app.route("/durdur_atl", methods=["POST"])
-def durdur_atl():
-    if not session.get("giris_atl"):
-        return "Yetkisiz", 403
-    global simulasyon_aktif_atl
-    with lock:
-        simulasyon_aktif_atl = False
-    return ('', 204)
-
-
-@app.route("/temizle_atl", methods=["POST"])
-def temizle_atl():
-    if not session.get("giris_atl"):
-        return "Yetkisiz", 403
-    global log_kaydi_atl
-    with lock:
-        log_kaydi_atl.clear()
-        log_kaydi_atl.append("🧹 ATL Log temizlendi.")
-    return ('', 204)
-
-
 @app.route("/login", methods=["POST"])
 def login():
     sifre = request.form.get("password")
     if sifre == "tavuk123":
         session["giris_tavuk"] = True
         log_kaydi.append("✅ TAVUKBIT giriş yapıldı.")
-    elif sifre == "ATL123":
-        session["giris_atl"] = True
-        log_kaydi_atl.append("✅ ATL COIN giriş yapıldı.")
     else:
         log_kaydi.append("🚫 Hatalı şifre denemesi!")
-        log_kaydi_atl.append("🚫 Hatalı şifre denemesi!")
     return redirect(url_for("index"))
 
 
 @app.route("/logout")
 def logout():
     session.pop("giris_tavuk", None)
-    session.pop("giris_atl", None)
     log_kaydi.append("👋 Çıkış yapıldı.")
-    log_kaydi_atl.append("👋 Çıkış yapıldı.")
     return redirect(url_for("index"))
 
 
-def atl_otomatik_guncelle():
-    global fiyat_atl, log_kaydi_atl
-    while True:
-        time.sleep(3600)  # 1 saat
-        with lock:
-            degisim = random.randint(-5, 5)
-            fiyat_atl = max(1, fiyat_atl + degisim)
-            log_kaydi_atl.append(f"⏰ Otomatik ATL güncellemesi: Yeni fiyat {fiyat_atl} elmas")
-            if len(log_kaydi_atl) > 100:
-                log_kaydi_atl.pop(0)
-
-
 if __name__ == "__main__":
-    threading.Thread(target=atl_otomatik_guncelle, daemon=True).start()
     app.run(host="0.0.0.0", port=5000)
