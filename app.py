@@ -23,7 +23,7 @@ HTML = '''
 <html lang="tr">
 <head>
   <meta charset="utf-8">
-  <title>💰TAVUKCHAIN💰</title>
+  <title>💰TAVUKBIT💰</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
     body { background:#121212; color:#eee; }
@@ -32,7 +32,7 @@ HTML = '''
   </style>
 </head>
 <body class="container py-4">
-  <h1>💰TAVUKCHAIN💰</h1>
+  <h1>💰TAVUKBIT💰</h1>
 
   {% if not session.get("giris_tavuk") %}
     <h2>🐔 TAVUKBIT</h2>
@@ -310,7 +310,7 @@ def meille_yukselme_azalt():
 @app.route("/login", methods=["POST"])
 def login():
     sifre = request.form.get("password")
-    if sifre == "tavuk123":
+    if sifre == "chicken123":
         session["giris_tavuk"] = True
         log_kaydi.append("✅ TAVUKBIT giriş yapıldı.")
     else:
