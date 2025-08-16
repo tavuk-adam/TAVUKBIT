@@ -12,11 +12,13 @@ import time
 import random
 import secrets
 from flask import Flask, render_template_string, request, jsonify, session, redirect, url_for
-import sqlite3
 import atexit
+import os
+import psycopg2
+from urllib.parse import urlparse
 
 # Global variables and lock for thread-safe access
-price = 0
+price = 300
 is_running = False
 thread_stop_event = threading.Event()
 price_lock = threading.Lock()
@@ -33,45 +35,65 @@ app.secret_key = secrets.token_hex(24)
 # Admin password
 ADMIN_PASSWORD = "chicken123"
 
-# SQLite Database setup
-DATABASE = 'tavukbit.db'
-
-
 def get_db_connection():
-    """Returns a connection to the SQLite database."""
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
-    return conn
-
+    """Returns a connection to the PostgreSQL database."""
+    try:
+        db_url = os.environ.get('DATABASE_URL')
+        if db_url is None:
+            # Fallback for local development
+            print("DATABASE_URL environment variable is not set. Using fallback values.")
+            db_url = "postgres://user:password@host:port/database"
+        
+        url = urlparse(db_url)
+        conn = psycopg2.connect(
+            database=url.path[1:],
+            user=url.username,
+            password=url.password,
+            host=url.hostname,
+            port=url.port
+        )
+        return conn
+    except Exception as e:
+        print(f"Veritabanı bağlantı hatası: {e}")
+        return None
 
 def init_db():
     """Initializes the database and tables if they don't exist."""
     conn = get_db_connection()
-    conn.execute('''
+    if conn is None:
+        print("Veritabanı bağlantısı kurulamadığı için tablo oluşturulamadı.")
+        return
+        
+    cursor = conn.cursor()
+    cursor.execute('''
         CREATE TABLE IF NOT EXISTS prices (
-            timestamp TEXT PRIMARY KEY,
+            timestamp timestamp PRIMARY KEY,
             value REAL NOT NULL
         )
     ''')
-    conn.execute('''
+    cursor.execute('''
         CREATE TABLE IF NOT EXISTS scheduled_tasks (
-            id INTEGER PRIMARY KEY,
-            timestamp TEXT NOT NULL,
+            id SERIAL PRIMARY KEY,
+            timestamp timestamp NOT NULL,
             action TEXT NOT NULL,
             value REAL NOT NULL
         )
     ''')
     conn.commit()
+    cursor.close()
     conn.close()
-
 
 def log_price_to_db(new_price):
     """Logs the current price to the database."""
     conn = get_db_connection()
-    conn.execute('INSERT INTO prices (timestamp, value) VALUES (?, ?)', (time.strftime('%Y-%m-%d %H:%M:%S'), new_price))
+    if conn is None:
+        return
+    cursor = conn.cursor()
+    # Use timezone-aware timestamp for PostgreSQL
+    cursor.execute('INSERT INTO prices (timestamp, value) VALUES (NOW(), %s)', (new_price,))
     conn.commit()
+    cursor.close()
     conn.close()
-
 
 def price_simulation():
     """
@@ -83,23 +105,29 @@ def price_simulation():
         with price_lock:
             # Check for scheduled tasks
             conn = get_db_connection()
-            now = time.strftime('%Y-%m-%d %H:%M:%S')
-            tasks = conn.execute('SELECT * FROM scheduled_tasks WHERE timestamp <= ?', (now,)).fetchall()
-            for task in tasks:
-                action = task['action']
-                value = task['value']
+            if conn:
+                cursor = conn.cursor()
+                now = time.strftime('%Y-%m-%d %H:%M:%S')
+                cursor.execute('SELECT * FROM scheduled_tasks WHERE timestamp <= %s', (now,))
+                tasks = cursor.fetchall()
 
-                if action == 'increase_price':
-                    price += value
-                    announcement = f"Planlı bir yükseliş gerçekleşti! Fiyat {value} arttı."
-                elif action == 'decrease_price':
-                    price -= value
-                    announcement = f"Planlı bir düşüş gerçekleşti! Fiyat {value} azaldı."
-
-                # Delete executed task
-                conn.execute('DELETE FROM scheduled_tasks WHERE id = ?', (task['id'],))
-            conn.commit()
-            conn.close()
+                for task in tasks:
+                    action = task[2] # Action is the 3rd column
+                    value = task[3] # Value is the 4th column
+                    
+                    if action == 'increase_price':
+                        price += value
+                        announcement = f"Planlı bir yükseliş gerçekleşti! Fiyat {value} arttı."
+                    elif action == 'decrease_price':
+                        price -= value
+                        announcement = f"Planlı bir düşüş gerçekleşti! Fiyat {value} azaldı."
+                    
+                    # Delete executed task
+                    cursor.execute('DELETE FROM scheduled_tasks WHERE id = %s', (task[0],))
+                
+                conn.commit()
+                cursor.close()
+                conn.close()
 
             if is_running:
                 # Determine price change probability based on 'meille' levels
@@ -110,24 +138,23 @@ def price_simulation():
                 elif meille_yukselme_seviye > 0:
                     weights[3] += meille_yukselme_seviye
                     weights[4] += meille_yukselme_seviye * 2
-
+                
                 change = random.choices([-2, -1, 0, 1, 2], weights=weights, k=1)[0]
                 price += change
-
+                
                 # Fiyatın negatif olmasını engelleme
                 if price <= 0:
-                    price = 1
+                    price = 1  
                     log_data.append("UYARI: Fiyat sıfırın altına düştüğü için 1'e yükseltildi.")
-
+                
                 # Add log entry
                 log_data.append(f"Fiyat değişimi: {change:+} (Güncel Fiyat: {price})")
                 if len(log_data) > 50:
                     log_data.pop(0)
 
                 log_price_to_db(price)
-
+            
         thread_stop_event.wait(1)
-
 
 @app.route('/')
 def index():
@@ -135,7 +162,6 @@ def index():
     Ana sayfayı render eder.
     """
     return render_template_string(HTML_TEMPLATE)
-
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -148,7 +174,6 @@ def login():
         return redirect(url_for('index'))
     return jsonify({"error": "Geçersiz şifre"}), 401
 
-
 @app.route('/logout')
 def logout():
     """
@@ -156,7 +181,6 @@ def logout():
     """
     session.pop('giris_tavuk', None)
     return redirect(url_for('index'))
-
 
 @app.route('/status')
 def status():
@@ -174,7 +198,6 @@ def status():
             "is_admin": session.get('giris_tavuk', False)
         })
 
-
 @app.route('/stats')
 def get_stats():
     """
@@ -182,11 +205,16 @@ def get_stats():
     """
     with price_lock:
         conn = get_db_connection()
-        prices = conn.execute('SELECT value FROM prices ORDER BY timestamp DESC LIMIT 60').fetchall()
-        conn.close()
-
+        if conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT value FROM prices ORDER BY timestamp DESC LIMIT 60')
+            prices = cursor.fetchall()
+            conn.close()
+        else:
+            prices = []
+        
         if prices:
-            price_values = [p['value'] for p in prices]
+            price_values = [p[0] for p in prices]
             max_price = max(price_values)
             min_price = min(price_values)
             avg_price = sum(price_values) / len(price_values)
@@ -199,7 +227,6 @@ def get_stats():
             "avg_price": avg_price
         })
 
-
 @app.route('/devam', methods=['POST'])
 def start_simulation():
     """
@@ -208,10 +235,10 @@ def start_simulation():
     global is_running, price
     if not session.get('giris_tavuk'):
         return "Yetkisiz Erişim", 403
-
+    
     data = request.json
     new_price_str = data.get('new_price')
-
+    
     with price_lock:
         if new_price_str:
             try:
@@ -223,11 +250,10 @@ def start_simulation():
                     log_data.append("Uyarı: Geçersiz başlangıç fiyatı. Mevcut fiyattan devam ediliyor.")
             except (ValueError, TypeError):
                 log_data.append("Uyarı: Geçersiz başlangıç fiyatı formatı. Mevcut fiyattan devam ediliyor.")
-
+        
         is_running = True
-
+        
     return "OK"
-
 
 @app.route('/durdur')
 def stop_simulation():
@@ -241,7 +267,6 @@ def stop_simulation():
         is_running = False
     return "OK"
 
-
 @app.route('/temizle')
 def clear_log():
     """
@@ -253,7 +278,6 @@ def clear_log():
     with price_lock:
         log_data = []
     return "OK"
-
 
 @app.route('/duyuru_yap', methods=['POST'])
 def make_announcement():
@@ -267,7 +291,6 @@ def make_announcement():
     with price_lock:
         announcement = new_announcement
     return "OK"
-
 
 @app.route('/meille_dusme_artir')
 def increase_meille_dusme():
@@ -283,7 +306,6 @@ def increase_meille_dusme():
             meille_yukselme_seviye = 0
     return "OK"
 
-
 @app.route('/meille_dusme_azalt')
 def decrease_meille_dusme():
     """
@@ -296,7 +318,6 @@ def decrease_meille_dusme():
         if meille_dusme_seviye > 0:
             meille_dusme_seviye -= 1
     return "OK"
-
 
 @app.route('/meille_yukselme_artir')
 def increase_meille_yukselme():
@@ -312,7 +333,6 @@ def increase_meille_yukselme():
             meille_dusme_seviye = 0
     return "OK"
 
-
 @app.route('/meille_yukselme_azalt')
 def decrease_meille_yukselme():
     """
@@ -326,28 +346,31 @@ def decrease_meille_yukselme():
             meille_yukselme_seviye -= 1
     return "OK"
 
-
 @app.route('/schedule_price_change', methods=['POST'])
 def schedule_price_change():
     """Schedules a future price change."""
     if not session.get('giris_tavuk'):
         return "Yetkisiz Erişim", 403
-
+    
     data = request.json
     timestamp = data.get('timestamp')
     action = data.get('action')
     value = data.get('value')
-
+    
     if not all([timestamp, action, value]):
         return jsonify({"error": "Missing data"}), 400
 
     conn = get_db_connection()
-    conn.execute('INSERT INTO scheduled_tasks (timestamp, action, value) VALUES (?, ?, ?)',
+    if conn is None:
+        return "Veritabanı bağlantısı kurulamadı.", 500
+    
+    cursor = conn.cursor()
+    cursor.execute('INSERT INTO scheduled_tasks (timestamp, action, value) VALUES (%s, %s, %s)',
                  (timestamp, action, value))
     conn.commit()
+    cursor.close()
     conn.close()
     return "OK"
-
 
 @app.route('/get_announcement_templates')
 def get_announcement_templates():
@@ -447,7 +470,7 @@ HTML_TEMPLATE = """
                         <h4 class="mt-4">Duyuru: <span id="announcement-display" class="fw-light"></span></h4>
                     </div>
                 </div>
-
+                
                 <div class="card p-4 mb-4">
                     <div class="card-header bg-success text-white text-center">
                         <h4 class="mb-0">Canlı Fiyat Grafiği</h4>
@@ -489,7 +512,7 @@ HTML_TEMPLATE = """
                             <button id="start-btn" class="btn btn-success fw-bold text-nowrap"><i class="fa-solid fa-play"></i> Devam</button>
                             <button id="stop-btn" class="btn btn-danger fw-bold text-nowrap"><i class="fa-solid fa-stop"></i> Durdur</button>
                         </div>
-
+                        
                         <h5 class="card-title mt-4">Piyasa İstatistikleri</h5>
                         <hr>
                         <div class="row text-center mb-4">
@@ -588,7 +611,7 @@ HTML_TEMPLATE = """
             </div>
         </div>
     </div>
-
+    
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         const loginPanel = document.getElementById('login-panel');
@@ -635,24 +658,24 @@ HTML_TEMPLATE = """
                 chart.update();
             }
         }
-
+        
         // Fetch and update status every second
         setInterval(async () => {
             try {
                 const response = await fetch('/status');
                 const data = await response.json();
-
+                
                 // Public View Update
                 priceDisplay.innerText = `${data.price.toFixed(0)} Elmas`;
                 announcementDisplay.innerText = data.announcement;
-
+                
                 // Chart Update
                 const now = new Date();
-                priceHistory.push({ x: now, y: data.price });
+                priceHistory.push({ x: now.getTime(), y: data.price });
                 if (priceHistory.length > maxDataPoints) {
                     priceHistory.shift();
                 }
-
+                
                 if (chart) {
                     chart.data.labels = priceHistory.map(item => item.x);
                     chart.data.datasets[0].data = priceHistory.map(item => item.y);
@@ -752,10 +775,10 @@ HTML_TEMPLATE = """
                 body: JSON.stringify({ new_price: newPrice })
             });
         });
-
+        
         document.getElementById('stop-btn').addEventListener('click', () => fetch('/durdur'));
         document.getElementById('clear-log-btn').addEventListener('click', () => fetch('/temizle'));
-
+        
         document.getElementById('announce-btn').addEventListener('click', () => {
             const text = document.getElementById('announcement-input').value;
             fetch('/duyuru_yap', {
@@ -764,19 +787,18 @@ HTML_TEMPLATE = """
                 body: JSON.stringify({ text })
             });
         });
-
+        
         document.getElementById('increase-down-btn').addEventListener('click', () => fetch('/meille_dusme_artir'));
         document.getElementById('decrease-down-btn').addEventListener('click', () => fetch('/meille_dusme_azalt'));
         document.getElementById('increase-up-btn').addEventListener('click', () => fetch('/meille_yukselme_artir'));
         document.getElementById('decrease-up-btn').addEventListener('click', () => fetch('/meille_yukselme_azalt'));
 
-        // Schedule Price Change form
         document.getElementById('schedule-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             const timestamp = document.getElementById('schedule-time').value;
             const action = document.getElementById('schedule-action').value;
             const value = document.getElementById('schedule-value').value;
-
+            
             const response = await fetch('/schedule_price_change', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -835,7 +857,7 @@ HTML_TEMPLATE = """
                 }
             });
         }
-
+        
         // Initial chart setup and theme update
         initChart();
         updateChartTheme(document.body.classList.contains('dark-mode'));
@@ -854,13 +876,10 @@ if __name__ == '__main__':
     thread.daemon = True
     thread.start()
 
-
     # Register a cleanup function to stop the thread gracefully on exit
     def shutdown_server():
         thread_stop_event.set()
         thread.join()
-
-
     atexit.register(shutdown_server)
 
     app.run(debug=True, use_reloader=False)
