@@ -759,13 +759,12 @@ if __name__ == '__main__':
     thread.daemon = True
     thread.start()
 
-
     # Register a cleanup function to stop the thread gracefully on exit
     def shutdown_server():
         thread_stop_event.set()
         thread.join()
 
-
     atexit.register(shutdown_server)
 
-    app.run(debug=True, use_reloader=False)
+    # Run the application on all available public IPs
+    app.run(host='0.0.0.0', debug=True, use_reloader=False)
