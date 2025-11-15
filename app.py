@@ -129,7 +129,7 @@ HTML = '''
                                 <button type="submit" class="btn btn-primary btn-lg w-100 shadow"><i class="bi bi-box-arrow-in-right me-2"></i> Giriş Yap</button>
                             </form>
                             <p class="text-center text-muted mt-3 mb-0 small">
-                                (Örn: **admin/chicken123** veya **testuser/123**)
+                                (TESTUSER ve ADMIN hesapları otomatik tanımlıdır)
                             </p>
                         </div>
                     {% else %}
